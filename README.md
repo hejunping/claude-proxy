@@ -1,4 +1,8 @@
-# Claude CLI Proxy 使用示例
+# Claude CLI Proxy
+
+OpenAI 兼容的 API 代理，将 Claude CLI 暴露为标准 API 服务。支持流式输出、Session 持久化、模型映射。
+
+任何兼容 OpenAI SDK 的客户端（Cursor、Continue、自定义应用）都可以直接对接。
 
 ## 启动服务
 
@@ -94,7 +98,7 @@ curl http://localhost:9090/v1/chat/completions \
   }'
 ```
 
-## 多轮对话
+## 多轮对话（无 Session）
 
 ```bash
 curl http://localhost:9090/v1/chat/completions \
@@ -108,6 +112,40 @@ curl http://localhost:9090/v1/chat/completions \
     ]
   }'
 ```
+
+## 多轮对话（Session 持久化）
+
+通过 `X-Session-ID` header 保持会话上下文，无需每次发送完整历史。
+
+第一次请求 — 自动创建 session，响应 header 返回 `X-Session-ID`：
+
+```bash
+curl -v http://localhost:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "sonnet",
+    "messages": [{"role": "user", "content": "我叫小明"}]
+  }'
+# 响应 header: X-Session-ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+后续请求 — 带上 session ID，只需发最新消息：
+
+```bash
+curl http://localhost:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-Session-ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -d '{
+    "model": "sonnet",
+    "messages": [{"role": "user", "content": "我叫什么名字？"}]
+  }'
+# Claude 会回答 "小明"
+```
+
+Session 优势：
+- Token 消耗更低（不重发历史）
+- 对话质量更好（CLI 原生多轮上下文）
+- 支持流式和非流式
 
 ## 指定 max_tokens
 
