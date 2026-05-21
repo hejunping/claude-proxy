@@ -33,6 +33,10 @@ app = FastAPI(title="Claude CLI Proxy", version="2.0.0")
 ANTHROPIC_VERSION = "2023-06-01"
 
 
+def _new_request_id() -> str:
+    return "req_" + uuid.uuid4().hex[:24]
+
+
 def _extract_api_key(request: Request) -> Optional[str]:
     key = request.headers.get("x-api-key")
     if key:
@@ -46,6 +50,11 @@ def _extract_api_key(request: Request) -> Optional[str]:
 def _key_is_valid(provided: str) -> bool:
     return any(hmac.compare_digest(provided, k) for k in API_KEYS)
 
+
+# IMPORTANT: middleware registration order = innermost first.
+# Final wrapping (outer -> inner): CORS -> add_response_headers -> auth -> route.
+# This guarantees that 401s from auth still pass back through add_response_headers
+# (so request-id is set) and CORS (so the browser can read the body).
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
@@ -81,13 +90,23 @@ async def auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def add_response_headers(request: Request, call_next):
+    response = await call_next(request)
+    req_id = _new_request_id()
+    response.headers.setdefault("request-id", req_id)
+    response.headers.setdefault("anthropic-request-id", req_id)
+    response.headers.setdefault("anthropic-version", ANTHROPIC_VERSION)
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Session-ID", "anthropic-request-id"],
+    expose_headers=["X-Session-ID", "anthropic-request-id", "request-id", "anthropic-version"],
 )
 
 
@@ -226,7 +245,7 @@ async def messages_endpoint(request: Request):
     except FileNotFoundError:
         return anthropic_error("Claude CLI not found in PATH", "api_error", 503)
     except TimeoutError as e:
-        return anthropic_error(str(e), "api_error", 504)
+        return anthropic_error(str(e), "timeout_error", 504)
     except RuntimeError as e:
         return anthropic_error(str(e), "api_error", 502)
 
@@ -237,9 +256,8 @@ async def messages_endpoint(request: Request):
         stop_sequence=result.get("stop_sequence"),
         usage=Usage(**result["usage"]),
     )
-    response = JSONResponse(content=resp.model_dump(exclude_none=True))
+    response = JSONResponse(content=resp.model_dump())
     response.headers["X-Session-ID"] = session_id
-    response.headers["anthropic-version"] = ANTHROPIC_VERSION
     return response
 
 
@@ -267,7 +285,12 @@ async def stream_messages(
             "model": model,
             "stop_reason": None,
             "stop_sequence": None,
-            "usage": {"input_tokens": 0, "output_tokens": 0},
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
         },
     })
 
@@ -317,6 +340,8 @@ async def stream_messages(
             })
 
         delta_usage = final_usage or {"input_tokens": 0, "output_tokens": output_tokens}
+        delta_usage.setdefault("cache_creation_input_tokens", 0)
+        delta_usage.setdefault("cache_read_input_tokens", 0)
         yield sse("message_delta", {
             "type": "message_delta",
             "delta": {
@@ -336,7 +361,7 @@ async def stream_messages(
     except TimeoutError as e:
         yield sse("error", {
             "type": "error",
-            "error": {"type": "api_error", "message": str(e)},
+            "error": {"type": "timeout_error", "message": str(e)},
         })
     except RuntimeError as e:
         yield sse("error", {

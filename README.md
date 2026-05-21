@@ -350,6 +350,15 @@ curl http://localhost:9090/health \
 | `CLAUDE_CLI_PATH` | `claude` | Claude CLI 路径 |
 | `PROXY_PORT` | `9090` | 服务端口 |
 | `REQUEST_TIMEOUT` | `300` | 请求超时（秒） |
+| `CLAUDE_BARE` | `false` | 是否给 CLI 加 `--bare`。⚠️ 开启后 CLI 不再读 keychain/OAuth，必须自己配 `ANTHROPIC_API_KEY` 或 apiKeyHelper |
+
+### 关于 `Not logged in · Please run /login`
+
+如果代理返回这个错误，说明 Claude CLI 没能拿到登录凭证。检查：
+
+1. 在终端先确认 CLI 本身能用：`claude -p "hi"`。报同样错就先 `claude /login`。
+2. 没设过 `CLAUDE_BARE=1`。`--bare` 模式**强制**只接受 `ANTHROPIC_API_KEY` / apiKeyHelper，不会去读你 OAuth 登录后存在 keychain 里的 token。默认（不设这个变量）就走 OAuth/keychain，能复用 `claude /login` 的会话。
+3. 启动代理的用户和 `claude /login` 时是同一个 macOS 用户（keychain 是按用户隔离的）。
 
 ---
 

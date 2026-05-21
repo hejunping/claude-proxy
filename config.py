@@ -8,6 +8,11 @@ CLAUDE_CLI_PATH = os.environ.get("CLAUDE_CLI_PATH", "claude")
 DEFAULT_PORT = int(os.environ.get("PROXY_PORT", "9090"))
 REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT", "300"))
 
+# --bare disables keychain/OAuth reads in the Claude CLI; only enable if you've
+# explicitly set ANTHROPIC_API_KEY (or configured apiKeyHelper via --settings).
+# Default OFF so the proxy works with a normal `claude /login` session.
+CLAUDE_BARE = os.environ.get("CLAUDE_BARE", "").lower() in ("1", "true", "yes", "on")
+
 MODEL_MAP = {
     "claude-opus": "opus",
     "claude-sonnet": "sonnet",

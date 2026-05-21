@@ -4,7 +4,7 @@ import asyncio
 import json
 from typing import AsyncGenerator, List, Optional, Tuple
 
-from config import CLAUDE_CLI_PATH, MODEL_MAP, REQUEST_TIMEOUT
+from config import CLAUDE_BARE, CLAUDE_CLI_PATH, MODEL_MAP, REQUEST_TIMEOUT
 
 
 def resolve_model(model: str) -> Optional[str]:
@@ -57,7 +57,8 @@ def build_command(
     else:
         cmd.extend(["--output-format", "json"])
 
-    cmd.append("--bare")
+    if CLAUDE_BARE:
+        cmd.append("--bare")
 
     if resume_session_id:
         cmd.extend(["--resume", resume_session_id])

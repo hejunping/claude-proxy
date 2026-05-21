@@ -25,7 +25,7 @@ class SystemBlock(BaseModel):
 class MessagesRequest(BaseModel):
     model: str
     messages: List[Message]
-    max_tokens: int = 1024
+    max_tokens: int = Field(..., gt=0)
     system: Optional[Union[str, List[Dict[str, Any]]]] = None
     metadata: Optional[Dict[str, Any]] = None
     stop_sequences: Optional[List[str]] = None
@@ -42,8 +42,8 @@ class MessagesRequest(BaseModel):
 class Usage(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
-    cache_creation_input_tokens: Optional[int] = None
-    cache_read_input_tokens: Optional[int] = None
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
     model_config = ConfigDict(extra="allow")
 
