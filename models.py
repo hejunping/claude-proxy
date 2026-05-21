@@ -1,65 +1,71 @@
 from __future__ import annotations
 
-import time
 import uuid
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class ChatMessage(BaseModel):
+def _new_message_id() -> str:
+    return f"msg_{uuid.uuid4().hex[:24]}"
+
+
+class Message(BaseModel):
     role: str
-    content: str
+    content: Union[str, List[Dict[str, Any]]]
 
 
-class ChatCompletionRequest(BaseModel):
-    model: str = "claude-sonnet-4-6"
-    messages: List[ChatMessage]
+class SystemBlock(BaseModel):
+    type: str = "text"
+    text: str
+
+    model_config = ConfigDict(extra="allow")
+
+
+class MessagesRequest(BaseModel):
+    model: str
+    messages: List[Message]
+    max_tokens: int = 1024
+    system: Optional[Union[str, List[Dict[str, Any]]]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    stop_sequences: Optional[List[str]] = None
     stream: bool = False
     temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    tools: Optional[List[Dict[str, Any]]] = None
+    tool_choice: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra="allow")
 
 
 class Usage(BaseModel):
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_creation_input_tokens: Optional[int] = None
+    cache_read_input_tokens: Optional[int] = None
+
+    model_config = ConfigDict(extra="allow")
 
 
-class ChoiceMessage(BaseModel):
+class TextBlock(BaseModel):
+    type: str = "text"
+    text: str
+
+
+class MessagesResponse(BaseModel):
+    id: str = Field(default_factory=_new_message_id)
+    type: str = "message"
     role: str = "assistant"
-    content: str
-
-
-class Choice(BaseModel):
-    index: int = 0
-    message: ChoiceMessage
-    finish_reason: str = "stop"
-
-
-class ChatCompletionResponse(BaseModel):
-    id: str = Field(default_factory=lambda: f"chatcmpl-{uuid.uuid4().hex[:12]}")
-    object: str = "chat.completion"
-    created: int = Field(default_factory=lambda: int(time.time()))
+    content: List[Dict[str, Any]]
     model: str
-    choices: List[Choice]
+    stop_reason: Optional[str] = "end_turn"
+    stop_sequence: Optional[str] = None
     usage: Usage
 
 
-class DeltaContent(BaseModel):
-    role: Optional[str] = None
-    content: Optional[str] = None
-
-
-class StreamChoice(BaseModel):
-    index: int = 0
-    delta: DeltaContent
-    finish_reason: Optional[str] = None
-
-
-class ChatCompletionChunk(BaseModel):
+class ModelInfo(BaseModel):
+    type: str = "model"
     id: str
-    object: str = "chat.completion.chunk"
-    created: int = Field(default_factory=lambda: int(time.time()))
-    model: str
-    choices: List[StreamChoice]
+    display_name: str
+    created_at: str

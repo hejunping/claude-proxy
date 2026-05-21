@@ -46,7 +46,6 @@ def build_command(
     prompt: str,
     system_prompt: Optional[str],
     model: Optional[str],
-    max_tokens: Optional[int],
     streaming: bool,
     session_id: Optional[str] = None,
     resume_session_id: Optional[str] = None,
@@ -73,9 +72,6 @@ def build_command(
         if resolved:
             cmd.extend(["--model", resolved])
 
-    if max_tokens:
-        cmd.extend(["--max-tokens", str(max_tokens)])
-
     return cmd
 
 
@@ -86,6 +82,8 @@ async def run_sync(
     session_id: Optional[str] = None,
     resume_session_id: Optional[str] = None,
 ) -> dict:
+    del max_tokens  # accepted for API compatibility, but Claude CLI doesn't expose a token cap
+
     if resume_session_id:
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         prompt = last_user
@@ -94,7 +92,7 @@ async def run_sync(
         prompt, system_prompt = build_prompt(messages)
 
     cmd = build_command(
-        prompt, system_prompt, model, max_tokens,
+        prompt, system_prompt, model,
         streaming=False, session_id=session_id, resume_session_id=resume_session_id,
     )
 
@@ -118,16 +116,22 @@ async def run_sync(
 
     result = json.loads(stdout.decode())
     text = result.get("result", "")
+    raw_usage = result.get("usage", {}) or {}
     usage = {
-        "prompt_tokens": result.get("usage", {}).get("input_tokens", 0),
-        "completion_tokens": result.get("usage", {}).get("output_tokens", 0),
+        "input_tokens": raw_usage.get("input_tokens", 0),
+        "output_tokens": raw_usage.get("output_tokens", 0),
     }
-    usage["total_tokens"] = usage["prompt_tokens"] + usage["completion_tokens"]
+    if "cache_creation_input_tokens" in raw_usage:
+        usage["cache_creation_input_tokens"] = raw_usage["cache_creation_input_tokens"]
+    if "cache_read_input_tokens" in raw_usage:
+        usage["cache_read_input_tokens"] = raw_usage["cache_read_input_tokens"]
 
     return {
         "text": text,
         "usage": usage,
         "model": result.get("model", model),
+        "stop_reason": result.get("stop_reason", "end_turn"),
+        "stop_sequence": result.get("stop_sequence"),
     }
 
 
@@ -138,6 +142,8 @@ async def run_stream(
     session_id: Optional[str] = None,
     resume_session_id: Optional[str] = None,
 ) -> AsyncGenerator[dict, None]:
+    del max_tokens  # accepted for API compatibility, but Claude CLI doesn't expose a token cap
+
     if resume_session_id:
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         prompt = last_user
@@ -146,7 +152,7 @@ async def run_stream(
         prompt, system_prompt = build_prompt(messages)
 
     cmd = build_command(
-        prompt, system_prompt, model, max_tokens,
+        prompt, system_prompt, model,
         streaming=True, session_id=session_id, resume_session_id=resume_session_id,
     )
 
@@ -183,13 +189,22 @@ async def run_stream(
                             yield {"type": "delta", "text": delta}
 
             elif event_type == "result":
-                usage = data.get("usage", {})
-                yield {
+                usage = data.get("usage", {}) or {}
+                usage_event: dict = {
                     "type": "usage",
-                    "prompt_tokens": usage.get("input_tokens", 0),
-                    "completion_tokens": usage.get("output_tokens", 0),
+                    "input_tokens": usage.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0),
                 }
-                yield {"type": "stop"}
+                if "cache_creation_input_tokens" in usage:
+                    usage_event["cache_creation_input_tokens"] = usage["cache_creation_input_tokens"]
+                if "cache_read_input_tokens" in usage:
+                    usage_event["cache_read_input_tokens"] = usage["cache_read_input_tokens"]
+                yield usage_event
+                yield {
+                    "type": "stop",
+                    "stop_reason": data.get("stop_reason", "end_turn"),
+                    "stop_sequence": data.get("stop_sequence"),
+                }
 
         await process.wait()
 
